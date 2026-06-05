@@ -1,0 +1,38 @@
+#!/bin/bash
+set -euxo pipefail
+
+exec > >(tee /var/log/lab-bootstrap.log | logger -t lab-bootstrap -s 2>/dev/console) 2>&1
+
+dnf install -y docker tar
+systemctl enable --now docker
+usermod -aG docker ec2-user
+
+curl --fail --location --retry 5 --retry-delay 2 -o /usr/local/bin/kubectl https://dl.k8s.io/release/v1.30.1/bin/linux/amd64/kubectl
+chmod +x /usr/local/bin/kubectl
+
+curl --fail --location --retry 5 --retry-delay 2 -o /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64
+chmod +x /usr/local/bin/kind
+ln -sf /usr/local/bin/kubectl /usr/bin/kubectl
+ln -sf /usr/local/bin/kind /usr/bin/kind
+
+mkdir -p /home/ec2-user/.kube /home/ec2-user/bootstrap
+chown -R ec2-user:ec2-user /home/ec2-user/.kube /home/ec2-user/bootstrap
+
+cat >/home/ec2-user/bootstrap/kind-config.yaml <<EOF
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: ${node_port}
+        hostPort: ${host_port}
+        listenAddress: "0.0.0.0"
+        protocol: TCP
+EOF
+
+KUBECONFIG=/home/ec2-user/.kube/config /usr/local/bin/kind create cluster --name lab --config /home/ec2-user/bootstrap/kind-config.yaml
+chown ec2-user:ec2-user /home/ec2-user/.kube/config
+/usr/local/bin/kubectl --kubeconfig=/home/ec2-user/.kube/config wait --for=condition=Ready nodes --all --timeout=180s
+
+mkdir -p /opt/lab
+touch /opt/lab/bootstrap-ready
