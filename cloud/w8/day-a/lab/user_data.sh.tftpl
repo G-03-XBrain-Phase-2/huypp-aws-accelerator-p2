@@ -1,0 +1,386 @@
+#!/bin/bash
+set -euxo pipefail
+
+dnf update -y
+dnf install -y nginx python3 python3-pip
+python3 -m pip install flask boto3 pymysql
+
+mkdir -p /opt/webapp
+
+cat <<'EOF' >/opt/webapp/app.py
+import json
+import os
+import uuid
+from datetime import datetime, timezone
+from html import escape
+
+import boto3
+import pymysql
+from flask import Flask, jsonify, redirect, request, url_for
+
+
+APP_REGION = os.environ["AWS_REGION"]
+DB_ENDPOINT = os.environ["DB_ENDPOINT"]
+DB_NAME = os.environ["DB_NAME"]
+DB_USER = os.environ["DB_USER"]
+DB_SECRET_ARN = os.environ["DB_SECRET_ARN"]
+S3_BUCKET = os.environ["S3_BUCKET"]
+
+app = Flask(__name__)
+
+
+def load_db_password():
+    client = boto3.client("secretsmanager", region_name=APP_REGION)
+    secret = client.get_secret_value(SecretId=DB_SECRET_ARN)
+    payload = json.loads(secret["SecretString"])
+    return payload["password"]
+
+
+def get_db_connection():
+    password = load_db_password()
+    return pymysql.connect(
+        host=DB_ENDPOINT,
+        user=DB_USER,
+        password=password,
+        database=DB_NAME,
+        connect_timeout=5,
+        read_timeout=5,
+        write_timeout=5,
+        autocommit=True,
+        cursorclass=pymysql.cursors.DictCursor,
+    )
+
+
+def ensure_schema():
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS notes (
+                    id VARCHAR(36) PRIMARY KEY,
+                    title VARCHAR(120) NOT NULL,
+                    s3_key VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+    finally:
+        connection.close()
+
+
+def check_rds():
+    connection = get_db_connection()
+    try:
+        ensure_schema()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1 AS ok_value")
+            value = cursor.fetchone()["ok_value"]
+        return {"status": "ok", "query_result": value}
+    finally:
+        connection.close()
+
+
+def check_s3():
+    s3 = boto3.client("s3", region_name=APP_REGION)
+    s3.head_bucket(Bucket=S3_BUCKET)
+    response = s3.list_objects_v2(Bucket=S3_BUCKET, MaxKeys=5)
+    return {
+        "status": "ok",
+        "bucket": S3_BUCKET,
+        "sample_keys": [item["Key"] for item in response.get("Contents", [])],
+    }
+
+
+def list_recent_notes(limit=10):
+    ensure_schema()
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, title, s3_key, created_at
+                FROM notes
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            return cursor.fetchall()
+    finally:
+        connection.close()
+
+
+def create_note(title, content):
+    ensure_schema()
+    note_id = str(uuid.uuid4())
+    created_at = datetime.now(timezone.utc).isoformat()
+    s3_key = f"notes/{note_id}.json"
+
+    s3 = boto3.client("s3", region_name=APP_REGION)
+    payload = {
+        "id": note_id,
+        "title": title,
+        "content": content,
+        "created_at": created_at,
+    }
+    s3.put_object(
+        Bucket=S3_BUCKET,
+        Key=s3_key,
+        Body=json.dumps(payload).encode("utf-8"),
+        ContentType="application/json",
+    )
+
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO notes (id, title, s3_key)
+                VALUES (%s, %s, %s)
+                """,
+                (note_id, title, s3_key),
+            )
+    finally:
+        connection.close()
+
+    return note_id
+
+
+def get_note(note_id):
+    ensure_schema()
+    connection = get_db_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, title, s3_key, created_at
+                FROM notes
+                WHERE id = %s
+                """,
+                (note_id,),
+            )
+            note = cursor.fetchone()
+    finally:
+        connection.close()
+
+    if not note:
+        return None
+
+    s3 = boto3.client("s3", region_name=APP_REGION)
+    response = s3.get_object(Bucket=S3_BUCKET, Key=note["s3_key"])
+    payload = json.loads(response["Body"].read().decode("utf-8"))
+    note["content"] = payload["content"]
+    return note
+
+
+@app.get("/")
+def index():
+    notes = list_recent_notes()
+    note_items = "".join(
+        """
+        <li>
+          <a href="/notes/{id}">{title}</a>
+          <span>{created_at}</span>
+        </li>
+        """.format(
+            id=escape(note["id"]),
+            title=escape(note["title"]),
+            created_at=escape(str(note["created_at"])),
+        )
+        for note in notes
+    )
+
+    if not note_items:
+        note_items = "<li><span>Chưa có ghi chú nào. Tạo ghi chú đầu tiên bên dưới.</span></li>"
+
+    return """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Ghi chú nhóm</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 40px; }
+    main { max-width: 920px; margin: 0 auto; background: #1e293b; border: 1px solid #334155; padding: 32px; border-radius: 8px; }
+    h1, h2 { margin-top: 0; }
+    code, small { color: #7dd3fc; }
+    .layout { display: grid; grid-template-columns: 1.2fr 1fr; gap: 24px; }
+    .panel { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 20px; }
+    .meta { display: grid; gap: 8px; margin-bottom: 20px; }
+    .meta div { display: flex; justify-content: space-between; gap: 16px; }
+    .meta span:last-child { text-align: right; }
+    ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+    li { padding: 12px; border: 1px solid #334155; border-radius: 6px; display: flex; justify-content: space-between; gap: 12px; }
+    a { color: #38bdf8; text-decoration: none; }
+    form { display: grid; gap: 12px; }
+    input, textarea, button { font: inherit; }
+    input, textarea { width: 100%%; box-sizing: border-box; padding: 10px 12px; border-radius: 6px; border: 1px solid #475569; background: #020617; color: #e2e8f0; }
+    textarea { min-height: 180px; resize: vertical; }
+    button { width: fit-content; border: 0; border-radius: 6px; background: #0284c7; color: white; padding: 10px 16px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Ghi chú nhóm</h1>
+    <p>Ứng dụng ghi chú nhỏ cho nhóm. Metadata của ghi chú lưu trong MySQL, nội dung chi tiết lưu dưới dạng JSON trong S3.</p>
+    <div class="layout">
+      <section class="panel">
+        <h2>Tạo ghi chú</h2>
+        <form method="post" action="/notes">
+          <label>
+            <div>Tiêu đề</div>
+            <input type="text" name="title" maxlength="120" required>
+          </label>
+          <label>
+            <div>Nội dung</div>
+            <textarea name="content" required></textarea>
+          </label>
+          <button type="submit">Lưu ghi chú</button>
+        </form>
+      </section>
+      <section class="panel">
+        <h2>Ghi chú gần đây</h2>
+        <ul>%s</ul>
+      </section>
+    </div>
+    <section class="panel" style="margin-top: 24px;">
+      <h2>Thông tin hạ tầng</h2>
+      <div class="meta">
+        <div><span>Web tier</span><span><code>EC2 public subnet</code></span></div>
+        <div><span>Điểm cuối RDS</span><span><code>%s</code></span></div>
+        <div><span>Database</span><span><code>%s</code></span></div>
+        <div><span>Tài khoản database</span><span><code>%s</code></span></div>
+        <div><span>Bucket S3</span><span><code>%s</code></span></div>
+        <div><span>Kiểm tra sức khỏe</span><span><a href="/health">/health</a></span></div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
+""" % (note_items, DB_ENDPOINT, DB_NAME, DB_USER, S3_BUCKET)
+
+
+@app.post("/notes")
+def create_note_route():
+    title = request.form.get("title", "").strip()
+    content = request.form.get("content", "").strip()
+
+    if not title or not content:
+        return "Tiêu đề và nội dung là bắt buộc", 400
+
+    note_id = create_note(title, content)
+    return redirect(url_for("view_note", note_id=note_id))
+
+
+@app.get("/notes/<note_id>")
+def view_note(note_id):
+    note = get_note(note_id)
+    if not note:
+        return "note not found", 404
+
+    return """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>%s</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 40px; }
+    main { max-width: 820px; margin: 0 auto; background: #1e293b; border: 1px solid #334155; padding: 32px; border-radius: 8px; }
+    a { color: #38bdf8; text-decoration: none; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 20px; }
+    small, code { color: #7dd3fc; }
+  </style>
+</head>
+<body>
+  <main>
+    <p><a href="/">Quay lại danh sách ghi chú</a></p>
+    <h1>%s</h1>
+    <p><small>Mã ghi chú: <code>%s</code></small></p>
+    <p><small>Thời gian tạo: <code>%s</code></small></p>
+    <pre>%s</pre>
+  </main>
+</body>
+</html>
+""" % (
+        escape(note["title"]),
+        escape(note["title"]),
+        escape(note["id"]),
+        escape(str(note["created_at"])),
+        escape(note["content"]),
+    )
+
+
+@app.get("/health")
+def health():
+    checks = {}
+    status_code = 200
+
+    try:
+        checks["rds"] = check_rds()
+    except Exception as exc:
+        checks["rds"] = {"status": "error", "message": str(exc)}
+        status_code = 500
+
+    try:
+        checks["s3"] = check_s3()
+    except Exception as exc:
+        checks["s3"] = {"status": "error", "message": str(exc)}
+        status_code = 500
+
+    checks["app"] = {"status": "ok", "message": "Ứng dụng hoạt động bình thường"}
+
+    return jsonify(checks), status_code
+
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=5000)
+EOF
+
+cat <<EOF >/etc/systemd/system/webapp.service
+[Unit]
+Description=Practical Terraform web app
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/webapp
+Environment=AWS_REGION=${aws_region}
+Environment=DB_ENDPOINT=${db_endpoint}
+Environment=DB_NAME=${db_name}
+Environment=DB_USER=${db_user}
+Environment=DB_SECRET_ARN=${db_secret_arn}
+Environment=S3_BUCKET=${s3_bucket}
+ExecStart=/usr/bin/python3 /opt/webapp/app.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat <<'EOF' >/etc/nginx/conf.d/webapp.conf
+server {
+    listen 80 default_server;
+    server_name _;
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+EOF
+
+rm -f /etc/nginx/conf.d/default.conf
+
+systemctl daemon-reload
+systemctl enable webapp
+systemctl restart webapp
+systemctl enable nginx
+systemctl restart nginx
