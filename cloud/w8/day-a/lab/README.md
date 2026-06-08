@@ -82,13 +82,6 @@ aws sts get-caller-identity
 
 ## Cấu hình biến đầu vào
 
-Tạo file `terraform.tfvars` từ file mẫu:
-
-```powershell
-Copy-Item terraform.tfvars.example terraform.tfvars
-```
-
-Ví dụ:
 
 ```hcl
 aws_region          = "ap-southeast-1"
@@ -104,10 +97,6 @@ tags = {
   Env   = "lab"
 }
 ```
-
-Khuyến nghị:
-- chỉ mở `admin_ingress_cidrs` theo IP public của bạn, ví dụ `["x.x.x.x/32"]`
-- không commit file `terraform.tfvars`
 
 ## Bước 1: Tạo remote state
 
@@ -212,19 +201,3 @@ cd remote-state
 terraform destroy -auto-approve
 ```
 
-## File cần chú ý khi commit
-
-- nên commit:
-  - `main.tf`
-  - `variables.tf`
-  - `versions.tf`
-  - `outputs.tf`
-  - `user_data.sh.tftpl`
-  - `README.md`
-  - `images/team-notes-home.png`
-  - `remote-state/*.tf`
-  - `.terraform.lock.hcl`
-- không nên commit:
-  - `terraform.tfvars`
-  - `.terraform/`
-  - `*.tfstate`
