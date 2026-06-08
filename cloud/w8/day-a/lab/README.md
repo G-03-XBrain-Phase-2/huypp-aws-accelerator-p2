@@ -15,6 +15,10 @@ Kiến trúc chính:
 
 ![Giao diện web app Team Notes](./images/team-notes-home.png)
 
+## Ảnh cấu hình Terraform
+
+![Màn hình cấu hình Terraform trong VS Code](./images/terraform-code.png)
+
 ## Chức năng ứng dụng
 
 Ứng dụng mẫu là `Ghi chú nhóm`:
@@ -200,4 +204,3 @@ terraform destroy -auto-approve
 cd remote-state
 terraform destroy -auto-approve
 ```
-
