@@ -1,0 +1,324 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notes-frontend-html
+  namespace: notes-demo
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+data:
+  index.html: |
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>GitOps Notes</title>
+        <style>
+          :root {
+            --bg: #f5f1e8;
+            --panel: #fffdfa;
+            --line: #e6dac4;
+            --text: #1f2937;
+            --muted: #6b7280;
+            --accent: #b45309;
+            --danger: #b91c1c;
+          }
+          * { box-sizing: border-box; }
+          body {
+            margin: 0;
+            font-family: Georgia, "Times New Roman", serif;
+            color: var(--text);
+            background:
+              radial-gradient(circle at top, #fff7ed, transparent 35%),
+              linear-gradient(180deg, #f8f4eb, var(--bg));
+          }
+          .shell {
+            width: min(920px, calc(100% - 32px));
+            margin: 40px auto;
+          }
+          .hero, .panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 20px;
+            box-shadow: 0 18px 40px rgba(31, 41, 55, 0.08);
+          }
+          .hero {
+            padding: 28px;
+            margin-bottom: 22px;
+          }
+          .eyebrow {
+            margin: 0 0 8px;
+            color: var(--accent);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            font-size: 0.82rem;
+          }
+          h1 {
+            margin: 0 0 10px;
+            font-size: clamp(2rem, 4vw, 3.4rem);
+            line-height: 1;
+          }
+          .subtext {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.7;
+            max-width: 60ch;
+          }
+          .panel {
+            padding: 24px;
+          }
+          form {
+            display: grid;
+            gap: 12px;
+            margin-bottom: 24px;
+          }
+          textarea {
+            width: 100%;
+            min-height: 120px;
+            padding: 14px 16px;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            resize: vertical;
+            font: inherit;
+            background: #fff;
+          }
+          .actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+          }
+          button {
+            border: 0;
+            border-radius: 999px;
+            padding: 12px 18px;
+            font: inherit;
+            cursor: pointer;
+          }
+          .primary {
+            background: var(--accent);
+            color: #fff;
+          }
+          .note-list {
+            display: grid;
+            gap: 14px;
+          }
+          .note {
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 16px;
+            background: #fff;
+          }
+          .note header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 10px;
+            color: var(--muted);
+            font-size: 0.92rem;
+          }
+          .delete {
+            background: #fee2e2;
+            color: var(--danger);
+          }
+          .empty {
+            color: var(--muted);
+            text-align: center;
+            padding: 22px;
+            border: 1px dashed var(--line);
+            border-radius: 14px;
+          }
+          .status {
+            color: var(--muted);
+            font-size: 0.94rem;
+          }
+        </style>
+      </head>
+      <body>
+        <main class="shell">
+          <section class="hero">
+            <p class="eyebrow">GitOps Notes App</p>
+            <h1>Frontend + Backend in Kubernetes</h1>
+            <p class="subtext">
+              Frontend runs on nginx. Backend is a tiny Python API. Both are
+              managed by ArgoCD from Git, so editing manifests changes the app.
+            </p>
+          </section>
+
+          <section class="panel">
+            <form id="note-form">
+              <textarea id="note-input" placeholder="Write a short note for your team..."></textarea>
+              <div class="actions">
+                <button class="primary" type="submit">Save note</button>
+                <span class="status" id="status">Ready</span>
+              </div>
+            </form>
+
+            <div id="notes" class="note-list"></div>
+          </section>
+        </main>
+
+        <template id="note-template">
+          <article class="note">
+            <header>
+              <span class="created-at"></span>
+              <button class="delete" type="button">Delete</button>
+            </header>
+            <div class="text"></div>
+          </article>
+        </template>
+
+        <script>
+          const notesNode = document.getElementById("notes");
+          const statusNode = document.getElementById("status");
+          const formNode = document.getElementById("note-form");
+          const inputNode = document.getElementById("note-input");
+          const templateNode = document.getElementById("note-template");
+
+          function setStatus(message) {
+            statusNode.textContent = message;
+          }
+
+          async function fetchNotes() {
+            setStatus("Loading notes...");
+            const response = await fetch("/api/notes");
+            const payload = await response.json();
+            renderNotes(payload.notes || []);
+            setStatus("Synced with backend");
+          }
+
+          function renderNotes(notes) {
+            notesNode.innerHTML = "";
+            if (!notes.length) {
+              const empty = document.createElement("div");
+              empty.className = "empty";
+              empty.textContent = "No notes yet. Create one above.";
+              notesNode.appendChild(empty);
+              return;
+            }
+
+            for (const note of notes) {
+              const fragment = templateNode.content.cloneNode(true);
+              fragment.querySelector(".created-at").textContent = note.createdAt;
+              fragment.querySelector(".text").textContent = note.text;
+              fragment.querySelector(".delete").addEventListener("click", async () => {
+                setStatus("Deleting note...");
+                await fetch(`/api/notes/${note.id}`, { method: "DELETE" });
+                await fetchNotes();
+              });
+              notesNode.appendChild(fragment);
+            }
+          }
+
+          formNode.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const text = inputNode.value.trim();
+            if (!text) {
+              setStatus("Please write something first");
+              return;
+            }
+
+            setStatus("Saving note...");
+            const response = await fetch("/api/notes", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text })
+            });
+
+            if (!response.ok) {
+              setStatus("Backend rejected the note");
+              return;
+            }
+
+            inputNode.value = "";
+            await fetchNotes();
+          });
+
+          fetchNotes().catch(() => {
+            setStatus("Could not reach backend");
+          });
+        </script>
+      </body>
+    </html>
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notes-frontend-nginx
+  namespace: notes-demo
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+data:
+  default.conf: |
+    server {
+      listen 80;
+      server_name _;
+      root /usr/share/nginx/html;
+      index index.html;
+
+      location / {
+        try_files $uri $uri/ /index.html;
+      }
+
+      location /api/ {
+        proxy_pass http://notes-backend.notes-demo.svc.cluster.local:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notes-frontend
+  namespace: notes-demo
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: notes-frontend
+  template:
+    metadata:
+      labels:
+        app: notes-frontend
+    spec:
+      containers:
+      - name: web
+        image: nginx:1.27
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: html
+          mountPath: /usr/share/nginx/html/index.html
+          subPath: index.html
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: default.conf
+      volumes:
+      - name: html
+        configMap:
+          name: notes-frontend-html
+      - name: nginx-config
+        configMap:
+          name: notes-frontend-nginx
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notes-frontend
+  namespace: notes-demo
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  selector:
+    app: notes-frontend
+  ports:
+  - port: 80
+    targetPort: 80

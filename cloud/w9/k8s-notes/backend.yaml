@@ -1,0 +1,179 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: notes-backend-code
+  namespace: notes-demo
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+data:
+  app.py: |
+    import json
+    import os
+    import threading
+    import time
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    DATA_DIR = "/data"
+    DATA_FILE = os.path.join(DATA_DIR, "notes.json")
+    LOCK = threading.Lock()
+
+    def ensure_store():
+        os.makedirs(DATA_DIR, exist_ok=True)
+        if not os.path.exists(DATA_FILE):
+            with open(DATA_FILE, "w", encoding="utf-8") as handle:
+                json.dump(
+                    [
+                        {
+                            "id": 1,
+                            "text": "Welcome to your GitOps note app",
+                            "createdAt": "seed",
+                        }
+                    ],
+                    handle,
+                )
+
+    def load_notes():
+        ensure_store()
+        with open(DATA_FILE, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def save_notes(notes):
+        with open(DATA_FILE, "w", encoding="utf-8") as handle:
+            json.dump(notes, handle)
+
+    class Handler(BaseHTTPRequestHandler):
+        def _send_json(self, payload, status=200):
+            body = json.dumps(payload).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _read_json(self):
+            length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(length) if length else b"{}"
+            return json.loads(raw.decode("utf-8"))
+
+        def do_GET(self):
+            if self.path == "/healthz":
+                self._send_json({"status": "ok"})
+                return
+            if self.path == "/api/notes":
+                with LOCK:
+                    notes = load_notes()
+                self._send_json({"notes": notes})
+                return
+            self._send_json({"error": "not found"}, status=404)
+
+        def do_POST(self):
+            if self.path != "/api/notes":
+                self._send_json({"error": "not found"}, status=404)
+                return
+            payload = self._read_json()
+            text = str(payload.get("text", "")).strip()
+            if not text:
+                self._send_json({"error": "text is required"}, status=400)
+                return
+
+            with LOCK:
+                notes = load_notes()
+                note = {
+                    "id": int(time.time() * 1000),
+                    "text": text,
+                    "createdAt": time.strftime("%Y-%m-%d %H:%M:%S"),
+                }
+                notes.insert(0, note)
+                save_notes(notes)
+            self._send_json(note, status=201)
+
+        def do_DELETE(self):
+            prefix = "/api/notes/"
+            if not self.path.startswith(prefix):
+                self._send_json({"error": "not found"}, status=404)
+                return
+            note_id = self.path[len(prefix):]
+            if not note_id.isdigit():
+                self._send_json({"error": "invalid id"}, status=400)
+                return
+
+            with LOCK:
+                notes = load_notes()
+                next_notes = [item for item in notes if str(item["id"]) != note_id]
+                if len(next_notes) == len(notes):
+                    self._send_json({"error": "not found"}, status=404)
+                    return
+                save_notes(next_notes)
+            self._send_json({"deleted": int(note_id)})
+
+        def log_message(self, fmt, *args):
+            return
+
+    ensure_store()
+    server = ThreadingHTTPServer(("0.0.0.0", 8000), Handler)
+    print("notes-backend listening on :8000", flush=True)
+    server.serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notes-backend
+  namespace: notes-demo
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notes-backend
+  template:
+    metadata:
+      labels:
+        app: notes-backend
+    spec:
+      containers:
+      - name: api
+        image: python:3.12-alpine
+        command:
+        - python
+        - /app/app.py
+        ports:
+        - containerPort: 8000
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        volumeMounts:
+        - name: app-code
+          mountPath: /app/app.py
+          subPath: app.py
+        - name: app-data
+          mountPath: /data
+      volumes:
+      - name: app-code
+        configMap:
+          name: notes-backend-code
+      - name: app-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notes-backend
+  namespace: notes-demo
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  selector:
+    app: notes-backend
+  ports:
+  - port: 8000
+    targetPort: 8000
