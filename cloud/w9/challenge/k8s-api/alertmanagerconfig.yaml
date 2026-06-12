@@ -1,0 +1,29 @@
+apiVersion: monitoring.coreos.com/v1beta1
+kind: AlertmanagerConfig
+metadata:
+  name: api-challenge-email
+  namespace: demo-challenge
+spec:
+  route:
+    receiver: challenge-email
+    groupBy:
+    - alertname
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 2h
+    matchers:
+    - name: app
+      value: api-challenge
+      matchType: "="
+  receivers:
+  - name: challenge-email
+    emailConfigs:
+    - to: "pham.huy.1152002@gmail.com"
+      from: "pham.huy.1152002@gmail.com"
+      smarthost: "smtp.gmail.com:587"
+      authUsername: "pham.huy.1152002@gmail.com"
+      authPassword:
+        name: alert-email-secret
+        key: password
+      requireTLS: true
+      sendResolved: true
