@@ -14,4 +14,4 @@ spec:
       prometheus:
         address: http://kube-prometheus-stack-prometheus.monitoring:9090
         query: |
-          sum(rate(flask_http_request_total{service="api",namespace="demo-challenge",status=~"5.."}[2m])) or on() vector(0)
+          sum(rate(flask_http_request_total{service="api-canary",namespace="demo-challenge",status=~"5.."}[2m])) or on() vector(0)
