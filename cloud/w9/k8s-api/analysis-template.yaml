@@ -1,0 +1,17 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: api-5xx-rate
+  namespace: demo
+spec:
+  metrics:
+  - name: api-5xx-rate
+    interval: 30s
+    count: 3
+    failureLimit: 1
+    successCondition: result[0] < 0.1
+    provider:
+      prometheus:
+        address: http://kube-prometheus-stack-prometheus.monitoring:9090
+        query: |
+          sum(rate(flask_http_request_total{service="api",status=~"5.."}[2m]))
