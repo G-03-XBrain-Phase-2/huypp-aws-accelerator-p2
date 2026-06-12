@@ -3,6 +3,8 @@ kind: PrometheusRule
 metadata:
   name: api-challenge-rules
   namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
 spec:
   groups:
   - name: api-challenge.rules
