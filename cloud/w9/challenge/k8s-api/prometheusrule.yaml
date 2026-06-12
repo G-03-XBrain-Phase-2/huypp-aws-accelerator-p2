@@ -18,6 +18,7 @@ spec:
       labels:
         severity: warning
         app: api-challenge
+        namespace: demo-challenge
       annotations:
         summary: "API challenge có tỷ lệ lỗi cao"
         description: "Tỷ lệ lỗi 5xx của api-challenge vượt 5% trong hơn 2 phút."
