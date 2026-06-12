@@ -1,0 +1,23 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: api-challenge-rules
+  namespace: monitoring
+spec:
+  groups:
+  - name: api-challenge.rules
+    rules:
+    - alert: ApiChallengeHighErrorRate
+      expr: |
+        (
+          sum(rate(flask_http_request_total{service="api",namespace="demo-challenge",status=~"5.."}[5m]))
+          /
+          sum(rate(flask_http_request_total{service="api",namespace="demo-challenge"}[5m]))
+        ) > 0.05
+      for: 2m
+      labels:
+        severity: warning
+        app: api-challenge
+      annotations:
+        summary: "API challenge có tỷ lệ lỗi cao"
+        description: "Tỷ lệ lỗi 5xx của api-challenge vượt 5% trong hơn 2 phút."
