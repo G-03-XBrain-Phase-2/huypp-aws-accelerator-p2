@@ -1,146 +1,331 @@
-# W9 Challenge
+# W9 Challenge - Ship Smartly
 
-Thư mục này dùng riêng cho bài tập lớn `Ship Smartly`.
+Thư mục này dùng riêng cho challenge `Ship Smartly` của W9.
 
 Mục tiêu của challenge:
 
-1. Mọi thay đổi qua Git, ArgoCD tự sync
-2. Có 1 SLO + 1 alert khi chất lượng tụt
-3. Canary bản tốt lên 100%, bản lỗi tự abort
-4. Có thể rollback lâu dài bằng `git revert`
+1. Mọi thay đổi đi qua Git, ArgoCD tự sync.
+2. Có 1 SLO và 1 alert khi chất lượng tụt.
+3. Canary bản tốt lên 100%, bản lỗi tự abort.
+4. Có thể rollback lâu dài bằng `git revert`.
 
-## Khung tối thiểu
+## 1. Cấu trúc challenge
 
 ```text
 challenge/
+  app/
+    app.py
+    Dockerfile
   argocd/
     apps/
+      api-challenge.yaml
   k8s-api/
-  app/
+    namespace.yaml
+    api.yaml
+    servicemonitor.yaml
+    analysis-template.yaml
+    prometheusrule.yaml
+    alertmanagerconfig.yaml
+    alert-email-secret.example.yaml
+    .gitignore
+  evidence/
+    01-structure.png
+    02-argocd-app.png
+    03-analysisrun-success.png
+    04-prometheus-good.png
+    05-bad-version.png
+    06-analysisrun-failed.png
+    07-rollout-aborted.png
+    08-prometheus-bad.png
+    09-prometheus-alert-firing.png
+    10-alertmanager-alert.png
+    12-email-success.png
 ```
 
-## Ý nghĩa từng thư mục
+Ảnh cấu trúc challenge:
 
-- `argocd/apps/`
-  - đặt `Application` riêng cho challenge nếu bạn muốn chạy challenge như một app tách biệt
+![Cấu trúc challenge](./evidence/01-structure.png)
 
-- `k8s-api/`
-  - đặt manifest Kubernetes/Argo Rollouts cho challenge
-  - ví dụ: `api.yaml`, `servicemonitor.yaml`, `analysis-template.yaml`, `prometheusrule.yaml`
+## 2. Vai trò từng file
 
-- `app/`
-  - đặt source code app nếu bạn muốn tách challenge ra khỏi app lab hiện tại
+- `app/app.py`: app Flask nhỏ có `/`, `/healthz` và `/metrics`.
+- `app/Dockerfile`: build image API dùng cho challenge.
+- `argocd/apps/api-challenge.yaml`: `Application` của ArgoCD cho challenge.
+- `k8s-api/namespace.yaml`: tạo namespace `demo-challenge`.
+- `k8s-api/api.yaml`: định nghĩa `Rollout`, service stable `api` và service canary `api-canary`.
+- `k8s-api/servicemonitor.yaml`: để Prometheus scrape metric từ app.
+- `k8s-api/analysis-template.yaml`: rule phân tích metric cho canary.
+- `k8s-api/prometheusrule.yaml`: alert rule cho SLO error rate.
+- `k8s-api/alertmanagerconfig.yaml`: route alert của challenge sang receiver email.
+- `k8s-api/alert-email-secret.example.yaml`: file mẫu để tạo secret chứa Gmail App Password.
 
-## Cách làm challenge trên khung này
+## 3. GitOps
 
-### Bước 1. Chọn chiến lược
+Challenge này chạy theo GitOps:
 
-Bạn có 2 hướng:
+- Manifest nằm trong Git.
+- ArgoCD đọc manifest từ GitHub.
+- Cluster tự đồng bộ theo Git.
+- Khi cần rollback lâu dài thì dùng `git revert`, không sửa tay trong cluster.
 
-- Hướng nhanh:
-  - tái sử dụng app `api` đã làm ở lab cũ
-  - chỉ sao chép các file cần thiết vào `challenge/`
+Ảnh ArgoCD app của challenge:
 
-- Hướng sạch:
-  - tạo app challenge riêng hoàn toàn
-  - có `Application` riêng, manifest riêng, app riêng
+![ArgoCD api-challenge](./evidence/02-argocd-app.png)
 
-Nếu mục tiêu là hoàn thành bài trong 24h, nên chọn hướng nhanh.
+## 4. SLI, SLO và Alert
 
-### Bước 2. Những file tối thiểu cần có
+### SLI
 
-Trong `challenge/k8s-api/`, tối thiểu nên có:
+SLI được chọn là tỷ lệ lỗi `5xx` của API trong namespace `demo-challenge`.
 
-- `api.yaml`
-- `servicemonitor.yaml`
-- `analysis-template.yaml`
-- `prometheusrule.yaml`
-
-Trong `challenge/argocd/apps/`, tối thiểu nên có:
-
-- `api-challenge.yaml`
-
-Nếu app code cần tách riêng, thêm:
-
-- `challenge/app/app.py`
-- `challenge/app/Dockerfile`
-
-### Bước 3. Tiêu chí đạt challenge
-
-Phải chứng minh được 4 điều:
-
-1. Thay đổi qua Git, ArgoCD `Synced`
-2. `git revert` rollback được
-3. Alert fire khi inject lỗi
-4. Canary bản lỗi tự abort
-
-### Bước 4. SLI / SLO gợi ý
-
-SLI:
-
-- tỷ lệ lỗi 5xx của service `api`
-
-Query gợi ý:
+Query:
 
 ```promql
-sum(rate(flask_http_request_total{service="api",status=~"5.."}[5m]))
+sum(rate(flask_http_request_total{service="api",namespace="demo-challenge",status=~"5.."}[5m]))
 /
-sum(rate(flask_http_request_total{service="api"}[5m]))
+sum(rate(flask_http_request_total{service="api",namespace="demo-challenge"}[5m]))
 ```
 
-SLO gợi ý:
+### SLO
 
-- error rate < 5%
+SLO được chọn là:
 
-### Bước 5. Alert gợi ý
+- Error rate < 5%
 
-Tạo `PrometheusRule` khi error rate > 5% trong 2-5 phút.
+### Alert
 
-### Bước 6. Auto-abort gợi ý
+Alert được định nghĩa trong `prometheusrule.yaml`.
 
-Trong `analysis-template.yaml`, dùng query 5xx:
+Điều kiện:
 
 ```promql
-sum(rate(flask_http_request_total{service="api",status=~"5.."}[2m])) or on() vector(0)
+(
+  sum(rate(flask_http_request_total{service="api",namespace="demo-challenge",status=~"5.."}[5m]))
+  /
+  sum(rate(flask_http_request_total{service="api",namespace="demo-challenge"}[5m]))
+) > 0.05
 ```
 
-Ngưỡng ví dụ:
+Thời gian giữ ngưỡng:
 
-- pass nếu `< 0.1`
-- fail nếu `>= 0.1`
+- `for: 2m`
 
-### Bước 7. Kịch bản demo nên chuẩn bị
+### Gửi email qua Alertmanager
 
-Kịch bản tốt:
+Cấu hình receiver email của challenge nằm trong `alertmanagerconfig.yaml`.
 
-- `ERROR_RATE=0`
-- rollout pass
-- app `Healthy`
+Với dữ liệu nhạy cảm:
 
-Kịch bản xấu:
+- Không push `alert-email-secret.yaml` thật lên Git.
+- Chỉ giữ `alert-email-secret.example.yaml` làm file mẫu.
+- Tạo secret thật trực tiếp trong cluster bằng `kubectl`.
 
-- `ERROR_RATE=0.3` hoặc `1`
-- analysis fail
-- rollout abort
-- stable version vẫn phục vụ
+Ví dụ:
 
-### Bước 8. Chứng minh rollback
+```powershell
+kubectl -n demo-challenge create secret generic alert-email-secret --from-literal=password="APP_PASSWORD_CUA_BAN"
+```
 
-Sau khi có commit xấu:
+Nếu dùng Gmail:
+
+- `from` và `authUsername` phải là Gmail đã tạo `App Password`.
+- Không dùng mật khẩu đăng nhập Gmail thường.
+- Phải bật `2-Step Verification` trước khi tạo `App Password`.
+
+## 5. Canary tự động
+
+`Rollout` trong `api.yaml` dùng chiến lược canary.
+
+Luồng chạy:
+
+1. Thả 25% bản mới qua `api-canary`.
+2. Chạy `AnalysisTemplate`.
+3. Nếu metric tốt thì tăng tiếp.
+4. Nếu metric xấu thì abort.
+
+Điểm quan trọng của manifest hiện tại:
+
+- `api` là stable service cho traffic chính.
+- `api-canary` là canary service chỉ dùng để đo bản mới.
+- `AnalysisTemplate` chỉ đo metric của `service="api-canary"`.
+
+Query hiện tại trong `analysis-template.yaml`:
+
+```promql
+sum(rate(flask_http_request_total{service="api-canary",namespace="demo-challenge",status=~"5.."}[2m])) or on() vector(0)
+```
+
+Ngưỡng pass/fail:
+
+- Pass: `result[0] < 0.1`
+- Fail: `failureLimit: 1`, `count: 3`
+
+## 6. Kịch bản tốt
+
+Trong `api.yaml`:
+
+```yaml
+- name: ERROR_RATE
+  value: "0"
+- name: VERSION
+  value: "v-good-2"
+```
+
+Kỳ vọng:
+
+- App có traffic.
+- Không có lỗi `5xx` đáng kể.
+- `AnalysisRun` thành công.
+- Rollout đi tiếp đến bản mới.
+
+Ảnh `AnalysisRun` thành công:
+
+![AnalysisRun thành công](./evidence/03-analysisrun-success.png)
+
+Ảnh Prometheus cho bản tốt:
+
+![Prometheus good version](./evidence/04-prometheus-good.png)
+
+## 7. Kịch bản xấu
+
+Khi muốn tạo bản lỗi để kiểm tra challenge:
+
+```yaml
+- name: ERROR_RATE
+  value: "1"
+- name: VERSION
+  value: "v-bad-2"
+```
+
+Ảnh cấu hình bad version:
+
+![Bad version](./evidence/05-bad-version.png)
+
+Ý nghĩa:
+
+- Đây là thay đổi thật trong manifest, đi qua Git như yêu cầu challenge.
+- Bản mới được cố tình inject lỗi bằng `ERROR_RATE=1`.
+
+Kỳ vọng:
+
+- Metric `5xx` tăng.
+- Alert fire.
+- `AnalysisRun` fail.
+- Rollout abort.
+- Stable version cũ vẫn phục vụ traffic.
+
+Ảnh `AnalysisRun` fail:
+
+![AnalysisRun failed](./evidence/06-analysisrun-failed.png)
+
+Ý nghĩa:
+
+- Có thể thấy lần trước `Successful`, lần rollout bản lỗi chuyển sang `Failed`.
+- Đây là bằng chứng `AnalysisTemplate` đã chặn bản canary xấu.
+
+Ảnh `RolloutAborted`:
+
+![Rollout aborted](./evidence/07-rollout-aborted.png)
+
+Ý nghĩa:
+
+- Dòng `Abort: true` chứng minh rollout đã tự hủy.
+- Message `Metric "api-5xx-rate" assessed Failed` cho thấy abort đến từ metric quan sát được.
+
+Ảnh Prometheus cho bản xấu:
+
+![Prometheus bad version](./evidence/08-prometheus-bad.png)
+
+Ý nghĩa:
+
+- Panel trên chứng minh request `5xx` phát sinh thật.
+- Panel dưới chứng minh tỷ lệ lỗi vượt ngưỡng SLO.
+
+Ảnh Prometheus alert `FIRING`:
+
+![Prometheus alert firing](./evidence/09-prometheus-alert-firing.png)
+
+Ý nghĩa:
+
+- Rule `ApiChallengeHighErrorRate` đã thật sự chuyển sang trạng thái `FIRING`.
+- Đây là bằng chứng ở lớp Prometheus: SLO bị vi phạm và hệ thống quan sát đã phát hiện sự cố.
+
+Ảnh Alertmanager nhận đúng alert:
+
+![Alertmanager challenge alert](./evidence/10-alertmanager-alert.png)
+
+Ý nghĩa:
+
+- Alert từ Prometheus đã được route đúng sang receiver của challenge.
+- Có thể đối chiếu trực tiếp `alertname="ApiChallengeHighErrorRate"` với `alertmanagerconfig.yaml`.
+
+## 8. Email cảnh báo
+
+Kết quả cuối cùng:
+
+- Prometheus đã `FIRING`.
+- Alertmanager đã nhận đúng alert `ApiChallengeHighErrorRate`.
+- Email cảnh báo đã được gửi thành công vào Gmail cá nhân.
+
+Ảnh email nhận được:
+
+![Email success](./evidence/12-email-success.png)
+
+Ý nghĩa:
+
+- Đây là bằng chứng cuối cùng cho yêu cầu alert gửi về email cá nhân.
+- Nội dung email có đủ `alertname`, `namespace`, `severity` và `annotations`.
+
+## 9. Rollback bằng git revert
+
+Challenge này có 2 lớp rollback:
+
+- `auto-abort`: rollback runtime trong cluster khi rollout bản lỗi
+- `git revert`: rollback lâu dài ở mức nguồn sự thật trong Git
+
+Lệnh:
 
 ```powershell
 git revert HEAD --no-edit
 git push
 ```
 
-ArgoCD sẽ sync về trạng thái tốt.
+Ý nghĩa:
 
-## Gợi ý trình bày
+- ArgoCD sync lại desired state tốt.
+- Cluster quay về bản ổn định theo Git.
 
-Bạn có thể present theo flow:
+## 10. Bằng chứng đã có
 
-1. GitOps: mọi thay đổi qua Git
-2. Observability: Prometheus scrape `/metrics`
-3. Canary: `Rollout` thả 25%
-4. Analysis: dùng metric để chấm bản mới
-5. Xấu thì auto-abort, lâu dài thì `git revert`
+Các ảnh hiện đang có trong `challenge/evidence/`:
+
+- `01-structure.png`: cấu trúc thư mục challenge
+- `02-argocd-app.png`: ArgoCD app `api-challenge`
+- `03-analysisrun-success.png`: `AnalysisRun` thành công ở bản tốt
+- `04-prometheus-good.png`: Prometheus ở bản tốt
+- `05-bad-version.png`: chỉnh `ERROR_RATE=1`, `VERSION=v-bad-2`
+- `06-analysisrun-failed.png`: `AnalysisRun` fail ở bản xấu
+- `07-rollout-aborted.png`: rollout auto-abort
+- `08-prometheus-bad.png`: Prometheus thấy `5xx` và error rate tăng
+- `09-prometheus-alert-firing.png`: `ApiChallengeHighErrorRate` ở trạng thái `FIRING`
+- `10-alertmanager-alert.png`: Alertmanager nhận đúng alert challenge
+- `12-email-success.png`: email thật nhận được trong inbox
+
+## 11. Kết luận
+
+Challenge này đã ghép đủ 3 mảng:
+
+- GitOps
+- Observability
+- Canary
+
+Flow cuối cùng:
+
+- Đổi version qua Git
+- ArgoCD tự sync
+- Canary thả dần
+- Prometheus đo metric
+- Analysis tự chấm bản canary
+- Bản lỗi bị auto-abort
+- Alert được gửi qua Alertmanager
+- Rollback lâu dài bằng `git revert`
