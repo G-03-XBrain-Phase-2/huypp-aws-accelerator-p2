@@ -40,6 +40,11 @@ challenge/
     09-prometheus-alert-firing.png
     10-alertmanager-alert.png
     12-email-success.png
+    13-rollout-events-recovery.png
+    14-rollout-healthy.png
+    15-argocd-synced-healthy.png
+    16-analysisrun-summary.png
+    17-git-revert-and-push.png
 ```
 
 Ảnh cấu trúc challenge:
@@ -223,6 +228,16 @@ Kỳ vọng:
 - Có thể thấy lần trước `Successful`, lần rollout bản lỗi chuyển sang `Failed`.
 - Đây là bằng chứng `AnalysisTemplate` đã chặn bản canary xấu.
 
+Ảnh tổng hợp `AnalysisRun`:
+
+![AnalysisRun summary](./evidence/16-analysisrun-summary.png)
+
+Ý nghĩa:
+
+- Ảnh này là output ngắn, dễ chấm nhất cho phần canary.
+- Trong cùng một màn hình có thể thấy nhiều revision `Successful`, đồng thời có các revision `Failed`.
+- Nó chứng minh hệ thống đã trải qua cả hai trạng thái: bản xấu bị chặn, bản tốt có thể đi tiếp.
+
 Ảnh `RolloutAborted`:
 
 ![Rollout aborted](./evidence/07-rollout-aborted.png)
@@ -276,7 +291,39 @@ Kết quả cuối cùng:
 - Đây là bằng chứng cuối cùng cho yêu cầu alert gửi về email cá nhân.
 - Nội dung email có đủ `alertname`, `namespace`, `severity` và `annotations`.
 
-## 9. Rollback bằng git revert
+## 9. Trạng thái cuối sau khi sửa bản tốt
+
+Sau khi đưa bản tốt mới lên và để ArgoCD đồng bộ lại, rollout đã quay về trạng thái khỏe.
+
+Ảnh rollout healthy/completed:
+
+![Rollout healthy](./evidence/14-rollout-healthy.png)
+
+Ý nghĩa:
+
+- `Rollout is healthy`
+- `RolloutCompleted`
+- `ReplicaSet ... has successfully progressed`
+
+Ảnh event recovery của rollout:
+
+![Rollout events recovery](./evidence/13-rollout-events-recovery.png)
+
+Ý nghĩa:
+
+- Có thể nhìn thấy lịch sử revision lỗi bị abort trước đó.
+- Sau đó rollout tiếp tục cập nhật sang revision `11`, chứng minh hệ thống đã recover về bản tốt.
+
+Ảnh ArgoCD trạng thái cuối:
+
+![ArgoCD Synced Healthy](./evidence/15-argocd-synced-healthy.png)
+
+Ý nghĩa:
+
+- Đây là bằng chứng chốt cho yêu cầu `ArgoCD Synced (no drift)`.
+- Trạng thái cuối cùng của app là `Synced` và `Healthy`.
+
+## 10. Rollback bằng git revert
 
 Challenge này có 2 lớp rollback:
 
@@ -295,7 +342,17 @@ git push
 - ArgoCD sync lại desired state tốt.
 - Cluster quay về bản ổn định theo Git.
 
-## 10. Bằng chứng đã có
+Ảnh rollback bằng `git revert`:
+
+![Git revert and push](./evidence/17-git-revert-and-push.png)
+
+Ý nghĩa:
+
+- Ảnh này chứng minh rollback được thực hiện đúng qua Git, không sửa tay trong cluster.
+- Terminal thể hiện rõ thứ tự: xem commit xấu gần nhất, chạy `git revert HEAD --no-edit`, rồi `git push origin main`.
+- Đây là bằng chứng trực tiếp cho yêu cầu `rollback bằng git revert`.
+
+## 11. Bằng chứng đã có
 
 Các ảnh hiện đang có trong `challenge/evidence/`:
 
@@ -310,8 +367,13 @@ Các ảnh hiện đang có trong `challenge/evidence/`:
 - `09-prometheus-alert-firing.png`: `ApiChallengeHighErrorRate` ở trạng thái `FIRING`
 - `10-alertmanager-alert.png`: Alertmanager nhận đúng alert challenge
 - `12-email-success.png`: email thật nhận được trong inbox
+- `13-rollout-events-recovery.png`: event cho thấy rollout lỗi trước đó và revision tốt mới đã được cập nhật
+- `14-rollout-healthy.png`: rollout ở trạng thái healthy/completed
+- `15-argocd-synced-healthy.png`: ArgoCD ở trạng thái `Synced Healthy`
+- `16-analysisrun-summary.png`: output ngắn cho thấy rõ revision nào `Failed`, revision nào `Successful`
+- `17-git-revert-and-push.png`: terminal chứng minh rollback được thực hiện bằng `git revert` rồi push lên GitHub
 
-## 11. Kết luận
+## 12. Kết luận
 
 Challenge này đã ghép đủ 3 mảng:
 
