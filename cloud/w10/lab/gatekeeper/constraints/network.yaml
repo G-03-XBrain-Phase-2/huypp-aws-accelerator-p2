@@ -8,5 +8,13 @@ spec:
     kinds:
       - apiGroups: [""]
         kinds: ["Pod"]
+    excludedNamespaces:
+      - kube-system
+      - eso
+      - argocd
+      - monitoring
+      - gatekeeper-system
+      - argo-rollouts
+      - cert-manager
   parameters:
     hostNetwork: false
