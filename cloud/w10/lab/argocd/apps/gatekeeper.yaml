@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gatekeeper-operator
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://open-policy-agent.github.io/gatekeeper/charts'
+    chart: gatekeeper
+    targetRevision: "3.14.0" # Chọn version phù hợp với phiên bản cụm của bạn
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: gatekeeper-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
