@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-secrets-config
+  namespace: argocd
+  annotations:
+    # Chạy sau khi Operator đã sẵn sàng để không bị lỗi "no matches for kind SecretStore"
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/G-03-XBrain-Phase-2/huypp-aws-accelerator-p2.git
+    targetRevision: main
+    path: cloud/w10/lab/eso
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo # Đồng bộ các Custom Resource này vào namespace demo (hoặc tuỳ chọn)
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
