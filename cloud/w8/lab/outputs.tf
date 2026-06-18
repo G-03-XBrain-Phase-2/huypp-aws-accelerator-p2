@@ -16,5 +16,11 @@ output "ssh_command" {
 
 output "kubeconfig_path" {
   description = "Local kubeconfig fetched from the EC2 host after bootstrap."
-  value       = "${local.generated_dir}/kubeconfig.yaml"
+  value       = "${local.generated_dir}/kubeconfig-${random_id.suffix.hex}-${aws_instance.kind_host.id}.yaml"
+}
+
+output "kubeconfig_scp_command" {
+  description = "Manual fallback command to fetch kubeconfig if local-exec on Windows fails."
+  value       = "scp -o StrictHostKeyChecking=no -i ${local_sensitive_file.ssh_private_key.filename} ec2-user@${aws_instance.kind_host.public_ip}:/home/ec2-user/.kube/config ${local.generated_dir}/kubeconfig-${random_id.suffix.hex}-${aws_instance.kind_host.id}.yaml"
+  sensitive   = true
 }

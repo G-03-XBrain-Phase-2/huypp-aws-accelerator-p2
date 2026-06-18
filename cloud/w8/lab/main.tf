@@ -99,7 +99,7 @@ resource "tls_private_key" "ssh" {
 
 resource "local_sensitive_file" "ssh_private_key" {
   content         = tls_private_key.ssh.private_key_pem
-  filename        = "${path.module}/lab-key.pem"
+  filename        = "${local.generated_dir}/lab-key-${random_id.suffix.hex}.pem"
   file_permission = "0600"
 }
 
@@ -279,17 +279,22 @@ resource "null_resource" "fetch_kubeconfig" {
   ]
 
   provisioner "local-exec" {
+    on_failure  = continue
     interpreter = ["PowerShell", "-Command"]
     command     = <<-EOT
       New-Item -ItemType Directory -Force -Path '${local.generated_dir}' | Out-Null
-      $keyPath = Join-Path $env:TEMP 'lab-key-scoped.pem'
-      if (Test-Path $keyPath) { Remove-Item -Force $keyPath }
-      Copy-Item -Force '${local_sensitive_file.ssh_private_key.filename}' $keyPath
+      $keyPath = Join-Path $env:TEMP 'lab-key-scoped-${aws_instance.kind_host.id}.pem'
       $currentUser = whoami
-      icacls $keyPath /inheritance:r | Out-Null
-      icacls $keyPath /remove 'NT AUTHORITY\Authenticated Users' 'BUILTIN\Users' 'Everyone' | Out-Null
-      icacls $keyPath /grant:r "$${currentUser}:(R)" | Out-Null
-      scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -i $keyPath ec2-user@${aws_instance.kind_host.public_ip}:/home/ec2-user/.kube/config '${local.generated_dir}/kubeconfig.yaml'
+      try {
+        if (Test-Path $keyPath) { Remove-Item -Force $keyPath -ErrorAction SilentlyContinue }
+        Copy-Item -Force '${local_sensitive_file.ssh_private_key.filename}' $keyPath
+        icacls $keyPath /inheritance:r | Out-Null
+        icacls $keyPath /remove 'NT AUTHORITY\Authenticated Users' 'BUILTIN\Users' 'Everyone' | Out-Null
+        icacls $keyPath /grant:r "$${currentUser}:(R)" | Out-Null
+        scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL -i $keyPath ec2-user@${aws_instance.kind_host.public_ip}:/home/ec2-user/.kube/config '${local.generated_dir}/kubeconfig-${random_id.suffix.hex}-${aws_instance.kind_host.id}.yaml'
+      } finally {
+        if (Test-Path $keyPath) { Remove-Item -Force $keyPath -ErrorAction SilentlyContinue }
+      }
     EOT
   }
 }
