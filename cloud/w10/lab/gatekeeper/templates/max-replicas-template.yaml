@@ -20,13 +20,13 @@ spec:
         package k8smaxreplicas
 
         violation[{"msg": msg}] {
-          # Lấy số lượng replicas từ manifest đang chuẩn bị deploy
+
           replicas := input.review.object.spec.replicas
           
-          # Lấy tham số 'max' cấu hình từ Constraint
+          
           max_allowed := input.parameters.max
           
-          # Điều kiện vi phạm: Số lượng replicas lớn hơn mức cho phép
+          
           replicas > max_allowed
           
           # Thông báo lỗi trả về cho user khi bị reject

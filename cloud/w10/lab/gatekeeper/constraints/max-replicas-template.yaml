@@ -3,10 +3,10 @@ kind: K8sMaxReplicas
 metadata:
   name: deployment-max-5-replicas
 spec:
-  enforcementAction: deny # Từ chối thẳng tay nếu vi phạm
+  enforcementAction: deny 
   match:
     kinds:
       - apiGroups: ["apps"]
         kinds: ["Deployment"]
   parameters:
-    max: 5 # Cấu hình số replicas tối đa là 5 theo đề bài
+    max: 5 
