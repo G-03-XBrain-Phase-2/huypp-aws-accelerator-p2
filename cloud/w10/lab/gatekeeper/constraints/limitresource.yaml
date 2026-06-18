@@ -3,6 +3,7 @@ kind: K8sContainerLimits
 metadata:
   name: container-must-have-limits
 spec:
+  enforcementAction: deny
   match:
     kinds:
       - apiGroups: [""]

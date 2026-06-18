@@ -3,6 +3,7 @@ kind: K8sPSPHostNetworkingPorts
 metadata:
   name: psp-host-network
 spec:
+  enforcementAction: deny
   match:
     kinds:
       - apiGroups: [""]
