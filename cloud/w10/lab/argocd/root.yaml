@@ -9,7 +9,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/G-03-XBrain-Phase-2/huypp-aws-accelerator-p2.git
-    path: cloud/w10/lab/temp/argocd/apps
+    path: cloud/w10/lab/argocd/apps
     targetRevision: main
   destination:
     server: https://kubernetes.default.svc
