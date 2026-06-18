@@ -14,7 +14,7 @@ spec:
     path: cloud/w10/lab/eso
   destination:
     server: https://kubernetes.default.svc
-    namespace: demo # Đồng bộ các Custom Resource này vào namespace demo (hoặc tuỳ chọn)
+    namespace: demo 
   syncPolicy:
     automated:
       prune: true
