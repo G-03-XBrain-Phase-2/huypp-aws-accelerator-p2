@@ -12,7 +12,7 @@ spec:
     helm:
       values: |
         grafana:
-          adminPassword: admin  # TODO: rotate via ESO or Helm secret
+          adminPassword: admin123
         prometheus:
           prometheusSpec:
             serviceMonitorSelectorNilUsesHelmValues: false
