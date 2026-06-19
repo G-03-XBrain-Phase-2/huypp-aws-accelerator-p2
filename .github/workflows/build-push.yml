@@ -12,7 +12,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ secrets.GHCR_USERNAME }}/w10-api
+  IMAGE_NAME: huypp/w10-api
 
 jobs:
   build-and-push:
@@ -90,8 +90,10 @@ jobs:
       - name: Sign the published Docker image
         run: |
           echo "${{ secrets.COSIGN_PRIVATE_KEY }}" > cosign.key
-          # Ký số chính xác vào tag SemVer mà manifest ứng dụng sẽ gọi dưới cụm
-          cosign sign --key cosign.key --yes ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.semver.outputs.version }}
+          # Ký cả semver tag và sha tag để admission verify được
+          cosign sign --key cosign.key --yes \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.semver.outputs.version }}
+          rm -f cosign.key
         env:
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
 
@@ -99,7 +101,7 @@ jobs:
       - name: Update rollout.yaml with new version
         run: |
           sed -i "s|image: ghcr.io/.*/w10-api:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.semver.outputs.version }}|g" cloud/w10/lab/app-api/rollout.yaml
-          sed -i "s|value: \"v.*\"|value: \"v${{ secrets.semver.outputs.version }}\"|g" cloud/w10/lab/app-api/rollout.yaml
+          sed -i "s|value: \"v.*\"|value: \"v${{ steps.semver.outputs.version }}\"|g" cloud/w10/lab/app-api/rollout.yaml
 
       - name: Commit and push version update
         run: |

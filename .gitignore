@@ -8,3 +8,7 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 .terraform.tfstate.lock.info
+
+# Cosign private key - NEVER commit
+cosign.key
+*.key

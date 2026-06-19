@@ -1,0 +1,16 @@
+apiVersion: policy.sigstore.dev/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: verify-ghcr-huypp
+spec:
+  images:
+  # Chỉ enforce image từ registry của bạn
+  - glob: "ghcr.io/huypp/w10-api*"
+  authorities:
+  - key:
+      # Dán nội dung cosign.pub vào đây sau khi chạy: cosign generate-key-pair
+      data: |
+        -----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE+gsK40yFyTvi127a0zgioCxmrR2F
+kcv9Tyy7qk8EmVv/+fGlr4tEvVvMgpADfvP7aY083+xSSFQt8EuUsVcOLA==
+-----END PUBLIC KEY-----
