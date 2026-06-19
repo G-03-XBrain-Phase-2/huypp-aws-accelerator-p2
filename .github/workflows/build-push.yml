@@ -90,10 +90,8 @@ jobs:
       - name: Sign the published Docker image
         run: |
           echo "${{ secrets.COSIGN_PRIVATE_KEY }}" > cosign.key
-          # Ký cả semver tag và sha tag để admission verify được
-          cosign sign --key cosign.key --yes \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.semver.outputs.version }}
-          rm -f cosign.key
+          # Ký số chính xác vào tag SemVer mà manifest ứng dụng sẽ gọi dưới cụm
+          cosign sign --key cosign.key --yes ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.semver.outputs.version }}
         env:
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
 
