@@ -34,6 +34,14 @@ spec:
           value: "v0.0.1"
         - name: ERROR_RATE
           value: "0"
+        volumeMounts:
+        - name: db-secret-vol
+          mountPath: /etc/secrets/db
+          readOnly: true
+      volumes:
+      - name: db-secret-vol
+        secret:
+          secretName: db-secret
         livenessProbe:
           httpGet:
             path: /healthz
